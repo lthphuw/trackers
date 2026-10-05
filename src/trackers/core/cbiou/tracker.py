@@ -46,18 +46,18 @@ class CBIoUTracker(BoTSORTTracker):
         lost_track_buffer: Time buffer (in frames at 30 FPS) for keeping lost
             tracks alive before deletion. Scaled by ``frame_rate``.
         frame_rate: Video frame rate used to scale the lost track buffer.
-        track_activation_threshold: Minimum detection confidence to spawn a
-            new track.
-        minimum_consecutive_frames: Number of successful updates required
-            before assigning a stable track ID.
-        minimum_iou_threshold_first_assoc: Minimum fused similarity for the
-            first association step.
-        minimum_iou_threshold_second_assoc: Minimum fused similarity for the
-            second association step.
-        minimum_iou_threshold_unconfirmed_assoc: Minimum fused similarity for
-            the unconfirmed association step.
-        high_conf_det_threshold: Confidence threshold splitting high / low
-            detections.
+        track_activation_threshold: Finite minimum detection confidence to
+            spawn a new track.
+        minimum_consecutive_frames: Integer of at least ``1``: number of
+            successful updates required before assigning a stable track ID.
+        minimum_iou_threshold_first_assoc: Finite minimum fused similarity for
+            the first association step.
+        minimum_iou_threshold_second_assoc: Finite minimum fused similarity for
+            the second association step.
+        minimum_iou_threshold_unconfirmed_assoc: Finite minimum fused
+            similarity for the unconfirmed association step.
+        high_conf_det_threshold: Finite confidence threshold splitting high /
+            low detections.
         instant_first_frame_activation: If ``True``, first-frame tracks receive
             a real ID immediately.
         state_estimator_class: Kalman state representation for tracklets.
@@ -69,6 +69,8 @@ class CBIoUTracker(BoTSORTTracker):
     Raises:
         ValueError: If ``lost_track_buffer`` is negative or ``frame_rate`` is not a
             finite positive value (inherited from ``BoTSORTTracker``).
+        ValueError: If ``minimum_consecutive_frames`` is not an integer ``>= 1`` or a
+            threshold is not finite (inherited from ``BoTSORTTracker``).
         ValueError: If ``buffer_ratio_first`` or ``buffer_ratio_second`` is negative.
 
     Note:

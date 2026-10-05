@@ -19,6 +19,8 @@ Sections
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 import supervision as sv
@@ -28,7 +30,7 @@ from trackers.core.botsort.tracker import BoTSORTTracker
 from trackers.core.bytetrack.tracker import ByteTrackTracker
 from trackers.core.ocsort.tracker import OCSORTTracker
 from trackers.core.sort.tracker import SORTTracker
-from trackers.utils.iou import BaseIoU
+from trackers.utils.iou import BaseIoU, GIoU
 
 from .shared_ids import ALL_TRACKER_IDS, IOU_TRACKER_IDS
 
@@ -1151,3 +1153,130 @@ class TestNonFiniteDetections:
         np.testing.assert_array_equal(result.tracker_id, expected.tracker_id)
         np.testing.assert_array_equal(result.xyxy, expected.xyxy)
         assert _state_snapshot(tracker) == _state_snapshot(control)
+
+
+# ==========================================================================
+# Constructor validation of counts and thresholds
+# ==========================================================================
+
+_NAN = float("nan")
+_INF = float("inf")
+
+# Count-like arguments and the values each must reject.
+_INVALID_COUNTS = {"zero": 0, "negative": -2, "bool": True, "float": 2.5, "nan": _NAN}
+_INVALID_THRESHOLDS = {"nan": _NAN, "inf": _INF, "neg_inf": -_INF, "bool": True, "huge_int": 10**400}
+
+# Threshold-like arguments per tracker (SORT has no high_conf_det_threshold, OC-SORT no track_activation_threshold).
+_THRESHOLD_ARGS = {
+    "sort": ["minimum_iou_threshold", "track_activation_threshold"],
+    "bytetrack": ["minimum_iou_threshold", "track_activation_threshold", "high_conf_det_threshold"],
+    "ocsort": ["minimum_iou_threshold", "high_conf_det_threshold"],
+    "botsort": [
+        "track_activation_threshold",
+        "high_conf_det_threshold",
+        "minimum_iou_threshold_first_assoc",
+        "minimum_iou_threshold_second_assoc",
+        "minimum_iou_threshold_unconfirmed_assoc",
+    ],
+    "cbiou": [
+        "track_activation_threshold",
+        "high_conf_det_threshold",
+        "minimum_iou_threshold_first_assoc",
+        "minimum_iou_threshold_second_assoc",
+        "minimum_iou_threshold_unconfirmed_assoc",
+    ],
+}
+
+
+def _case(tracker_id: str, arg: str, label: str, value: object) -> Any:
+    return pytest.param((tracker_id, {arg: value}), id=f"{tracker_id}-{arg}-{label}")
+
+
+_INVALID_CONFIGS = [
+    *[
+        _case(tracker_id, "minimum_consecutive_frames", label, value)
+        for tracker_id in ALL_TRACKER_IDS
+        for label, value in _INVALID_COUNTS.items()
+    ],
+    *[_case("ocsort", "delta_t", label, value) for label, value in _INVALID_COUNTS.items()],
+    *[
+        _case(tracker_id, arg, label, value)
+        for tracker_id, args in _THRESHOLD_ARGS.items()
+        for arg in args
+        for label, value in _INVALID_THRESHOLDS.items()
+    ],
+    *[
+        _case("ocsort", "direction_consistency_weight", label, value)
+        for label, value in {**_INVALID_THRESHOLDS, "negative": -0.1}.items()
+    ],
+]
+
+
+def _search_space_endpoints() -> list[Any]:
+    import trackers  # noqa: F401 - triggers auto-registration
+
+    params = []
+    for tracker_id in ALL_TRACKER_IDS:
+        info = BaseTracker._lookup_tracker(tracker_id)
+        assert info is not None
+        for end, index in (("low", 0), ("high", 1)):
+            search_space = info.tracker_class.search_space or {}
+            kwargs = {key: spec["range"][index] for key, spec in search_space.items() if "range" in spec}
+            params.append(pytest.param((tracker_id, kwargs), id=f"{tracker_id}-search_space-{end}"))
+    return params
+
+
+class TestConstructorValidation:
+    """Invalid counts and thresholds fail at construction and name the argument."""
+
+    @pytest.mark.parametrize("case", _INVALID_CONFIGS)
+    def test_rejects_invalid_value(self, case: tuple[str, dict[str, object]]) -> None:
+        tracker_id, kwargs = case
+        (arg,) = kwargs
+
+        with pytest.raises(ValueError, match=arg):
+            _instantiate(tracker_id, **kwargs)
+
+    @pytest.mark.parametrize("case", _search_space_endpoints())
+    def test_accepts_search_space_endpoints(self, case: tuple[str, dict[str, object]]) -> None:
+        tracker_id, kwargs = case
+
+        tracker = _instantiate(tracker_id, **kwargs)
+
+        assert isinstance(tracker, BaseTracker)
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            pytest.param(("sort", {"minimum_consecutive_frames": 1}), id="sort-min_frames-1"),
+            pytest.param(("botsort", {"minimum_consecutive_frames": 1}), id="botsort-min_frames-1"),
+            pytest.param(("sort", {"minimum_consecutive_frames": np.int64(3)}), id="sort-min_frames-numpy-int"),
+            pytest.param(("ocsort", {"delta_t": 1}), id="ocsort-delta_t-1"),
+            pytest.param(("ocsort", {"direction_consistency_weight": 0.0}), id="ocsort-weight-0"),
+            pytest.param(("ocsort", {"direction_consistency_weight": 0}), id="ocsort-weight-int-0"),
+            pytest.param(("sort", {"minimum_iou_threshold": np.float32(0.3)}), id="sort-iou-numpy-float"),
+            pytest.param(("cbiou", {"minimum_iou_threshold_first_assoc": -0.5}), id="cbiou-negative-iou"),
+        ],
+    )
+    def test_accepts_boundary_values(self, case: tuple[str, dict[str, object]]) -> None:
+        tracker_id, kwargs = case
+
+        tracker = _instantiate(tracker_id, **kwargs)
+
+        assert isinstance(tracker, BaseTracker)
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            pytest.param(("sort", "minimum_iou_threshold"), id="sort"),
+            pytest.param(("bytetrack", "minimum_iou_threshold"), id="bytetrack"),
+            pytest.param(("ocsort", "minimum_iou_threshold"), id="ocsort"),
+            pytest.param(("botsort", "minimum_iou_threshold_first_assoc"), id="botsort"),
+        ],
+    )
+    def test_accepts_negative_similarity_threshold_with_signed_iou(self, case: tuple[str, str]) -> None:
+        tracker_id, arg = case
+
+        tracker = _instantiate(tracker_id, iou=GIoU(), **{arg: -0.5})
+
+        assert isinstance(tracker, BaseTracker)

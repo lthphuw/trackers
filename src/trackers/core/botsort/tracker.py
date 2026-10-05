@@ -11,7 +11,7 @@ import supervision as sv
 from deprecate import TargetMode, deprecated
 from scipy.optimize import linear_sum_assignment
 
-from trackers.core.base import BaseTracker
+from trackers.core.base import BaseTracker, _require_finite, _require_int_at_least
 from trackers.core.botsort.tracklet import BoTSORTTracklet
 from trackers.core.botsort.utils import _fuse_score, get_alive_tracklets
 from trackers.utils.cmc import CMC, CMCConfig, CMCMethod
@@ -48,21 +48,22 @@ class BoTSORTTracker(BaseTracker):
             track on the first missed frame. This is scaled by `frame_rate`.
         frame_rate: Video frame rate used to scale the lost track buffer to
             time-like behavior. Must be positive.
-        track_activation_threshold: Minimum detection confidence to spawn a new
-            track.
-        minimum_consecutive_frames: Number of successful updates required before
-            assigning a stable track ID (different than initial -1).
-        minimum_iou_threshold_first_assoc: Minimum fused similarity (IoU x
+        track_activation_threshold: Finite minimum detection confidence to spawn
+            a new track.
+        minimum_consecutive_frames: Integer of at least ``1``: number of
+            successful updates required before assigning a stable track ID
+            (different than initial -1).
+        minimum_iou_threshold_first_assoc: Finite minimum fused similarity (IoU x
             detection confidence) to accept a detection-track association during
             the first association step.
-        minimum_iou_threshold_second_assoc: Minimum IoU to accept a
+        minimum_iou_threshold_second_assoc: Finite minimum IoU to accept a
             detection-track association during the second association step.
             No score fusion is applied in this pass, so this is plain IoU.
-        minimum_iou_threshold_unconfirmed_assoc: Minimum fused similarity (IoU x
-            score) to accept a match between an unconfirmed track and a remaining
-            high-confidence detection.  Corresponds to the original ByteTrack's
-            hardcoded cost threshold of 0.7 (= similarity 0.3).
-        high_conf_det_threshold: Confidence threshold used to split detections into:
+        minimum_iou_threshold_unconfirmed_assoc: Finite minimum fused similarity
+            (IoU x score) to accept a match between an unconfirmed track and a
+            remaining high-confidence detection.  Corresponds to the original
+            ByteTrack's hardcoded cost threshold of 0.7 (= similarity 0.3).
+        high_conf_det_threshold: Finite confidence threshold used to split detections into:
             - high confidence: confidence >= threshold
             - low confidence:  confidence < threshold
         enable_cmc: Whether to enable camera motion compensation (CMC).
@@ -124,6 +125,12 @@ class BoTSORTTracker(BaseTracker):
         state_estimator_class: type[BaseStateEstimator] = XCYCWHStateEstimator,
         iou: BaseIoU | None = None,
     ) -> None:
+        _require_int_at_least("minimum_consecutive_frames", minimum_consecutive_frames, 1)
+        _require_finite("track_activation_threshold", track_activation_threshold)
+        _require_finite("high_conf_det_threshold", high_conf_det_threshold)
+        _require_finite("minimum_iou_threshold_first_assoc", minimum_iou_threshold_first_assoc)
+        _require_finite("minimum_iou_threshold_second_assoc", minimum_iou_threshold_second_assoc)
+        _require_finite("minimum_iou_threshold_unconfirmed_assoc", minimum_iou_threshold_unconfirmed_assoc)
         self.maximum_frames_without_update = self._compute_maximum_frames_without_update(
             lost_track_buffer=lost_track_buffer,
             frame_rate=frame_rate,

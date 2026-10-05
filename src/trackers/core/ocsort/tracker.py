@@ -10,7 +10,7 @@ import numpy as np
 import supervision as sv
 from scipy.optimize import linear_sum_assignment
 
-from trackers.core.base import BaseTracker
+from trackers.core.base import BaseTracker, _require_finite, _require_int_at_least
 from trackers.core.ocsort.tracklet import OCSORTTracklet
 from trackers.core.ocsort.utils import _build_direction_consistency_matrix_batch
 from trackers.utils.base_tracklet import BaseTracklet
@@ -48,21 +48,24 @@ class OCSORTTracker(BaseTracker):
         frame_rate: `float` specifying video frame rate in frames per second.
             Must be positive. Used to scale the lost track buffer for consistent
             tracking across different frame rates.
-        minimum_consecutive_frames: `int` specifying number of consecutive
-            frames before a track is considered valid. Before reaching this
-            threshold, tracks are assigned `tracker_id` of `-1`.
-        minimum_iou_threshold: `float` specifying IoU threshold for associating
-            detections to existing tracks. Higher values require more overlap.
-        direction_consistency_weight: `float` specifying weight for direction
-            consistency in the association cost. Higher values prioritize angle
-            alignment between motion and association direction.
-        high_conf_det_threshold: `float` specifying threshold for high confidence
-            detections. Lower confidence detections are excluded from association
-            and from spawning new tracks, but are still returned with
-            `tracker_id` of `-1`.
-        delta_t: `int` specifying number of past frames to use for velocity
-            estimation. Higher values provide more stable direction estimates
-            during occlusion.
+        minimum_consecutive_frames: `int` of at least `1` specifying number of
+            consecutive frames before a track is considered valid. Before
+            reaching this threshold, tracks are assigned `tracker_id` of `-1`.
+        minimum_iou_threshold: Finite `float` specifying IoU threshold for
+            associating detections to existing tracks. Higher values require
+            more overlap. Not limited to `[0, 1]`, since signed variants such
+            as `GIoU` produce negative similarities.
+        direction_consistency_weight: Finite `float` of at least `0` specifying
+            weight for direction consistency in the association cost. Higher
+            values prioritize angle alignment between motion and association
+            direction.
+        high_conf_det_threshold: Finite `float` specifying threshold for high
+            confidence detections. Lower confidence detections are excluded
+            from association and from spawning new tracks, but are still
+            returned with `tracker_id` of `-1`.
+        delta_t: `int` of at least `1` specifying number of past frames to use
+            for velocity estimation. Higher values provide more stable
+            direction estimates during occlusion.
         state_estimator_class: State estimator class to use for Kalman filter.
             Defaults to `XCYCSRStateEstimator`. Can also use
             `XYXYStateEstimator` for corner-based representation or
@@ -102,6 +105,13 @@ class OCSORTTracker(BaseTracker):
         state_estimator_class: type[BaseStateEstimator] = XCYCSRStateEstimator,
         iou: BaseIoU | None = None,
     ) -> None:
+        _require_int_at_least("minimum_consecutive_frames", minimum_consecutive_frames, 1)
+        _require_int_at_least("delta_t", delta_t, 1)
+        _require_finite("minimum_iou_threshold", minimum_iou_threshold)
+        _require_finite("direction_consistency_weight", direction_consistency_weight)
+        if direction_consistency_weight < 0:
+            raise ValueError(f"direction_consistency_weight must be >= 0; got {direction_consistency_weight!r}")
+        _require_finite("high_conf_det_threshold", high_conf_det_threshold)
         self.maximum_frames_without_update = self._compute_maximum_frames_without_update(
             lost_track_buffer=lost_track_buffer,
             frame_rate=frame_rate,

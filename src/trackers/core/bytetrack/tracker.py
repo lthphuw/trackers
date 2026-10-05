@@ -10,7 +10,7 @@ import numpy as np
 import supervision as sv
 from scipy.optimize import linear_sum_assignment
 
-from trackers.core.base import BaseTracker
+from trackers.core.base import BaseTracker, _require_finite, _require_int_at_least
 from trackers.core.bytetrack.tracklet import ByteTrackTracklet
 from trackers.core.bytetrack.utils import _get_alive_tracklets
 from trackers.utils.detections import default_confidences
@@ -55,16 +55,19 @@ class ByteTrackTracker(BaseTracker):
         frame_rate: `float` specifying video frame rate in frames per second.
             Must be positive. Used to scale the lost track buffer for consistent
             tracking across different frame rates.
-        track_activation_threshold: `float` specifying minimum detection
+        track_activation_threshold: Finite `float` specifying minimum detection
             confidence to create new tracks. Higher values reduce false
             positives but may miss low-confidence objects.
-        minimum_consecutive_frames: `int` specifying number of consecutive
-            frames before a track is considered valid. Before reaching this
-            threshold, tracks are assigned `tracker_id` of `-1`.
-        minimum_iou_threshold: `float` specifying IoU threshold for associating
-            detections to existing tracks. Higher values require more overlap.
-        high_conf_det_threshold: `float` specifying threshold for separating
-            high and low confidence detections in the two-stage association.
+        minimum_consecutive_frames: `int` of at least `1` specifying number of
+            consecutive frames before a track is considered valid. Before
+            reaching this threshold, tracks are assigned `tracker_id` of `-1`.
+        minimum_iou_threshold: Finite `float` specifying IoU threshold for
+            associating detections to existing tracks. Higher values require
+            more overlap. Not limited to `[0, 1]`, since signed variants such
+            as `GIoU` produce negative similarities.
+        high_conf_det_threshold: Finite `float` specifying threshold for
+            separating high and low confidence detections in the two-stage
+            association.
         state_estimator_class: State estimator class to use for Kalman filter.
             Defaults to `XYXYStateEstimator`. Can also use
             `XCYCSRStateEstimator` for center-based representation.
@@ -98,6 +101,10 @@ class ByteTrackTracker(BaseTracker):
         state_estimator_class: type[BaseStateEstimator] = XYXYStateEstimator,
         iou: BaseIoU | None = None,
     ) -> None:
+        _require_int_at_least("minimum_consecutive_frames", minimum_consecutive_frames, 1)
+        _require_finite("minimum_iou_threshold", minimum_iou_threshold)
+        _require_finite("track_activation_threshold", track_activation_threshold)
+        _require_finite("high_conf_det_threshold", high_conf_det_threshold)
         self.maximum_frames_without_update = self._compute_maximum_frames_without_update(
             lost_track_buffer=lost_track_buffer,
             frame_rate=frame_rate,

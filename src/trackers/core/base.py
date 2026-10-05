@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import math
+import numbers
 import re
 import types
 import warnings
@@ -281,6 +282,39 @@ def _validate_search_space_entry(cls_name: str, key: str, spec: Any, init_params
         raise ValueError(f"{cls_name}: search_space[{key!r}]['range'] must be a 2-element sequence, got {rng!r}")
     if rng[0] >= rng[1]:
         raise ValueError(f"{cls_name}: search_space[{key!r}]['range'] must have low < high, got {rng!r}")
+
+
+def _require_finite(name: str, value: Any) -> None:
+    """Raise ``ValueError`` unless ``value`` is a finite real number (``bool`` is rejected).
+
+    Args:
+        name: Constructor argument name, used in the error message.
+        value: Value to check.
+
+    Raises:
+        ValueError: If ``value`` is not a real number, is NaN/infinite, or is an integer too large for a ``float``.
+    """
+    try:
+        valid = not isinstance(value, bool) and isinstance(value, numbers.Real) and math.isfinite(value)
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError(f"{name} must be a finite number; got {value!r}")
+
+
+def _require_int_at_least(name: str, value: Any, minimum: int) -> None:
+    """Raise ``ValueError`` unless ``value`` is an integer ``>= minimum`` (``bool`` is rejected).
+
+    Args:
+        name: Constructor argument name, used in the error message.
+        value: Value to check. Python and NumPy integers are accepted.
+        minimum: Smallest accepted value.
+
+    Raises:
+        ValueError: If ``value`` is not an integer or is smaller than ``minimum``.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}; got {value!r}")
 
 
 class TrackletProtocol(Protocol):
